@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=too-many-arguments,invalid-name,too-many-nested-blocks
+# pylint: disable=too-many-arguments,invalid-name,too-many-nested-blocks,line-too-long,missing-docstring,global-statement
 
 '''
 Target for Stitch API.
@@ -23,6 +23,8 @@ from contextlib import contextmanager
 from collections import namedtuple
 from datetime import datetime, timezone
 from decimal import Decimal
+import asyncio
+import concurrent
 import psutil
 
 # import requests
@@ -33,13 +35,11 @@ from aiohttp.client_exceptions import ClientConnectorError, ClientResponseError
 
 from jsonschema import ValidationError, Draft4Validator, FormatChecker
 import pkg_resources
-import singer
 import backoff
 
-import aiohttp
-import asyncio
+import singer
 
-import concurrent
+
 
 LOGGER = singer.get_logger().getChild('target_stitch')
 
@@ -73,13 +73,12 @@ sendException = None
 
 class TargetStitchException(Exception):
     '''A known exception for which we don't need to print a stack trace'''
-    pass
 
 class StitchClientResponseError(Exception):
-     def __init__(self, status, response_body):
-         self.response_body = response_body
-         self.status = status
-
+    def __init__(self, status, response_body):
+        self.response_body = response_body
+        self.status = status
+        super().__init__()
 
 class MemoryReporter(Thread):
     '''Logs memory usage every 30 seconds'''
@@ -143,8 +142,6 @@ def float_to_decimal(value):
 class BatchTooLargeException(TargetStitchException):
     '''Exception for when the records and schema are so large that we can't
     create a batch with even one record.'''
-    pass
-
 
 def _log_backoff(details):
     (_, exc, _) = sys.exc_info()
@@ -165,8 +162,8 @@ class StitchHandler: # pylint: disable=too-few-public-methods
 
     @staticmethod
     #this happens in the event loop
-    def flush_states( state_writer, future):
-        LOGGER.info('FLUSH states..................')
+    def flush_states(state_writer, future):
+        # LOGGER.info('FLUSH states..................')
         global pendingRequests
         global sendException
 
@@ -183,7 +180,6 @@ class StitchHandler: # pylint: disable=too-few-public-methods
             LOGGER.info('FLUSH early exit because of sendException: %s', pformat(sendException))
             return
 
-        pendingRequestsUpdate = []
         for f, s in pendingRequests:
             # LOGGER.info("FLUSH CHECKING: %s", pformat(f))
             if f.done():
@@ -196,7 +192,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                     state_writer.flush()
             else:
                 # LOGGER.info("FLUSH NOT DONE: %s", pformat(f))
-                break;
+                break
 
         pendingRequests = pendingRequests[completed_count:]
         # LOGGER.info("AFTER FLUSH %s", pformat(pendingRequests))
@@ -226,11 +222,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
         future = asyncio.run_coroutine_threadsafe(post_coroutine(url, headers, data, verify_ssl), new_loop)
         next_pending_request = (future, state)
         pendingRequests.append(next_pending_request)
-        future.add_done_callback( functools.partial(self.flush_states, state_writer))
-
-        # NB> how do we handle failures? response.raise_for_status()
-        # return response
-
+        future.add_done_callback(functools.partial(self.flush_states, state_writer))
 
     def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None):
         '''Handle messages by sending them to Stitch.
@@ -259,10 +251,7 @@ class StitchHandler: # pylint: disable=too-few-public-methods
                 if i + 1 == len(bodies):
                     flushable_state = state
 
-                response = self.send(body, state_writer, flushable_state)
-                #LOGGER.debug('Response is {}: {}'.format(response, response.content))
-
-
+                self.send(body, state_writer, flushable_state)
 
 class LoggingHandler:  # pylint: disable=too-few-public-methods
     '''Logs records to a local output file.'''
@@ -271,7 +260,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
         self.max_batch_bytes = max_batch_bytes
         self.max_batch_records = max_batch_records
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None):
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): #pylint: disable=unused-argument
         '''Handles a batch of messages by saving them to a local output file.
 
         Serializes records in the same way StitchHandler does, so the
@@ -295,7 +284,7 @@ class LoggingHandler:  # pylint: disable=too-few-public-methods
 class ValidatingHandler: # pylint: disable=too-few-public-methods
     '''Validates input messages against their schema.'''
 
-    def handle_batch(self, messages, schema, key_names, bookmark_names=None): # pylint: disable=no-self-use,unused-argument
+    def handle_batch(self, messages, schema, key_names, bookmark_names=None, state_writer=None, state=None): # pylint: disable=no-self-use,unused-argument
         '''Handles messages by validating them against schema.'''
         schema = float_to_decimal(schema)
         validator = Draft4Validator(schema, format_checker=FormatChecker())
@@ -315,7 +304,7 @@ class ValidatingHandler: # pylint: disable=too-few-public-methods
                         'Record does not pass schema validation: {}'.format(e))
 
         LOGGER.info('%s (%s): Batch is valid',
-                    message.stream,
+                    messages[0].stream,
                     len(messages))
 
 def generate_sequence(message_num, max_records):
@@ -628,8 +617,8 @@ def finish_requests():
     while True:
         LOGGER.info("Finishing %s requests:", len(pendingRequests))
         check_send_exception()
-        if len(pendingRequests) == 0:
-            break;
+        if len(pendingRequests) == 0: #pylint: disable=len-as-condition
+            break
         time.sleep(1)
 
 
@@ -662,7 +651,7 @@ def check_send_exception():
         LOGGER.exception(exc)
         raise TargetStitchException('Error connecting to Stitch')
 
-    except concurrent.futures._base.TimeoutError as exc:
+    except concurrent.futures._base.TimeoutError as exc: #pylint: disable=protected-access
         raise TargetStitchException("Timeout sending to Stitch")
 
 
@@ -681,7 +670,7 @@ async def post_coroutine(url, headers, data, verify_ssl):
         result_body = None
         try:
             result_body = await response.json()
-        except:
+        except: #pylint: disable=bare-except
             pass
         LOGGER.info("POST response: %s %s", response.status, result_body)
         if response.status // 100 != 2:
