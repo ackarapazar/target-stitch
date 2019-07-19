@@ -92,3 +92,6 @@ data-*.txt
 *~
 \#*
 .\#*
+
+.DS_Store
+.idea

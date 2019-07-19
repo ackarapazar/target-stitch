@@ -569,7 +569,7 @@ def main_impl():
 def main():
     '''Main entry point'''
     try:
-        MemoryReporter().start()
+        # MemoryReporter().start()
         main_impl()
 
     # If we catch an exception at the top level we want to log a CRITICAL
